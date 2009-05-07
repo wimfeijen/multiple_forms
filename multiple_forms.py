@@ -1,0 +1,192 @@
+#TODO create Class
+'''
+Main advantages: 
++ Customizable read-only fields.
++ Minimum of how many forms to display.
++ Easier integration into templates.
++ Uses modelforms so forms can be manipulated that way.
+
+Disadvantages/To dos:
+- No option for deletion (forms with only empty values should probably be deleted)
+- More difficult integration into views (right now).  
+- No option for displaying more than one empty form.
+
+'''
+
+MINIMUM = 5
+
+def _get_empty_forms(modelform, minimum=MINIMUM):
+    '''Returns a list of empty modelforms.
+    '''
+    forms = []
+    for i in range(minimum):
+        form = modelform(prefix=i)
+        forms.append(form)
+    return forms
+
+def _get_default_forms(modelform, defaults, minimum=MINIMUM):
+    '''Returns a list of modelforms with default values.
+    '''
+    forms = _get_empty_forms(modelform, minimum)
+    if len(defaults) > len(forms):
+        raise Exception
+    i = 0
+    for default in defaults:
+        forms[i] = modelform(initial = default, prefix=i)
+        i += 1
+    return forms
+
+def get_db_forms(modelform, queryset, defaults, minimum=MINIMUM):
+    '''
+    Returns a list of modelforms filled with queryset values,
+    plus at least one extra form, so that the minimum number of 
+    forms is at least minimum.
+    Empty forms are filled with default values, if applicable.
+
+    Input: 
+    modelform: one of your forms, f.e. MyForm()
+    queryset: a list of instances, f.e. 
+        queryset = MyModel.objects.all()
+    defaults: a list of dictionaries, f.e.: 
+        defaults = [
+           {'first_name': 'Jakob', 'instrument': 'First cello'},
+           {'instrument': 'Second cello'},
+        ]
+    minimum: the minimum number of MyForms you want to put in the list.
+    '''   
+
+    forms = _get_default_forms(modelform, defaults, minimum)
+    i = 0
+    for row in queryset:
+        forms[i] = modelform(initial=vars(row), prefix=i, instance=row)
+        i += 1
+        if i >= minimum:
+            forms.append(modelform(prefix=i))
+    return forms
+
+def _is_populated(modelform, data, prefix):
+    '''Checks whether data has been entered into the given
+    fields of a form with the given prefix.
+  
+    Requires that fields are specified in modelforms Meta function
+    '''
+    fields = modelform._meta.fields
+    for field in fields:
+        if prefix:
+            name = unicode(prefix) + '-' + field
+        else:
+            name = field
+        if data[name]:
+            return True
+    return False
+
+def _get_nr_of_forms(queryset, minimum=MINIMUM):
+    '''Returns the minimum number of form used, which equals
+    minimum, except when the queryset length is minimum or larger.'''
+    nr_of_forms = len(queryset) + 1 
+    if nr_of_forms < minimum:
+        nr_of_forms = minimum
+    return nr_of_forms
+
+def get_posted_forms(modelform, data, queryset, minimum=MINIMUM, collection=None):
+    '''Returns forms which had queryset data entered, as well as all
+    forms which had request.post data.
+
+    Input: 
+    modelform: one of your forms, f.e. MyForm()
+    data: request.POST 
+    queryset: a list of instances, f.e. 
+        queryset = MyModel.objects.all()
+    defaults: a list of dictionaries, f.e.: 
+        defaults = [
+           {'first_name': 'Jakob', 'instrument': 'First cello'},
+           {'instrument': 'Second cello'},
+        ]
+    minimum: the minimum number of MyForms you want to put in the list.
+    collection: None. Not used right now.
+    '''
+
+    nr_of_forms = _get_nr_of_forms(queryset, minimum)
+    i = 0
+    forms = []
+    for instance in queryset:
+        forms.append(modelform(data, prefix=i, instance=instance))
+        i += 1
+    while i < nr_of_forms:
+        if _is_populated(modelform, data, i):
+            if collection:
+                model = modelform._meta.model
+                instance = model(criterion_collection=collection)
+                forms.append(modelform(data, prefix=i, instance=instance))
+            else:
+                forms.append(modelform(data, prefix=i))
+        i += 1 
+    return forms
+    
+def get_posted_and_empty_forms(modelform, data, queryset, minimum=MINIMUM, collection=None):
+    """Returns a mixture of validated forms and empty forms. 
+    If there are any errors in the forms, this mixture is returned to the user.
+
+    Input: 
+    modelform: one of your forms, f.e. MyForm()
+    data: request.POST 
+    queryset: a list of instances, f.e. 
+        queryset = MyModel.objects.all()
+    defaults: a list of dictionaries, f.e.: 
+        defaults = [
+           {'first_name': 'Jakob', 'instrument': 'First cello'},
+           {'instrument': 'Second cello'},
+        ]
+    minimum: the minimum number of MyForms you want to put in the list.
+    collection: None. Not used right now.
+    """ 
+    nr_of_forms = _get_nr_of_forms(queryset, minimum)
+    i = 0
+    forms = []
+    for instance in queryset:
+        form = modelform(data, prefix=i, instance=instance)
+        form.is_valid()
+        forms.append(form)
+        i += 1
+    while i < nr_of_forms:
+        if _is_populated(modelform, data, i):
+            if collection:
+                model = modelform._meta.model
+                instance = model(criterion_collection=collection)
+                form = modelform(data, prefix=i, instance=instance)
+            else:
+                form = modelform(data, prefix=i)
+            form.is_valid()
+        else:
+            form = modelform(prefix=i)
+        forms.append(form)
+        i += 1 
+    return forms
+
+def validate_forms(posted_forms):
+    """Checks whether the given list of forms is valid. If all are, 
+    returns the list of validated forms. Else, stops checking and
+    returns False.
+    """
+    for form in posted_forms:
+        if not form.is_valid():
+            return False  
+    return posted_forms 
+
+def _set_readonly(forms, readonly):
+    i = 0
+    for row in readonly:
+        for el in row:
+            forms[i].fields[el].widget.attrs['readonly'] = 'readonly'
+        i += 1
+    return forms
+
+def set_fields_to_readonly(forms, defaults):
+    ''' set fields to readonly.'''
+    readonly = []
+    for default in defaults:
+        readonly.append( default.keys() )
+    forms = _set_readonly(forms, readonly)
+    return forms
+
+

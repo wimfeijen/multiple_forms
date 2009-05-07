@@ -1,0 +1,7 @@
+How to install?
+
+Install django,
+Add multiple_forms to your installed apps,
+Add musicians to urls.py
+Try localhost:8000/musicians for a demo
+
